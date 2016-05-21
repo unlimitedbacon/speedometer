@@ -4,7 +4,7 @@
 // TODO:
 // * Acceleration
 // * Other units
-// * Odometer
+// * Non-volotile Odometer
 // * MPG
 
 #include <Wire.h>
@@ -14,6 +14,7 @@
 
 // Digital pins
 const int pulserPin = 4;
+const int modePin = 5;
 const int mirrorPin = 6;
 // Analog pins
 const int brightnessPin = 0;
@@ -30,7 +31,9 @@ unsigned long pulseTimes[4] = {0,0,0,0};	// Duration of last 4 pulses in microse
 unsigned long oldTime = 0;
 unsigned long newTime = 0;
 unsigned long odometer = 0;			// Distance traveled since startup
+unsigned long miles = 0;
 
+int mode = 0;					// 0: Speed, 1: Odometer
 int brightness = 0x0F;
 unsigned long lastCheckTime = 0;
 bool mirror = false;
@@ -41,10 +44,11 @@ void setup() {
 	// Setup IO
 	Serial.begin(115200);
 	pinMode(pulserPin, INPUT);
+	pinMode(modePin, INPUT_PULLUP);
 	pinMode(mirrorPin, INPUT_PULLUP);
 	pulserState = digitalRead(pulserPin);
 	lastPulserState = pulserState;
-	brightness = digitalRead(brightnessPin);
+	mode = !digitalRead(modePin);
 	mirror = digitalRead(mirrorPin);
 
 	// Initialize display
@@ -62,7 +66,7 @@ void setup() {
 	display.writeDisplay();
 	delay(500);
 
-	writeSpeed(speed);
+	updateScreen();
 
 	Serial.println("I am a speedometer");
 }
@@ -89,25 +93,43 @@ void loop() {
 		//speed = 8771930 / pulseTimes[0];
 		// Average over 4 pulses (1 rotation of VSS gear)
 		speed = 35087719 / sum(pulseTimes);
-		writeSpeed(speed);
 		odometer++;
+		miles = odometer*10 / 4104;
+		updateScreen();
 	// If no new pulses for a while,
 	// assume we are at 0 mph
 	} else if (newTime - oldTime > 4385965) {
 		// 0.2 mph
 		// 4.385965 seconds
 		speed = 0;
-		writeSpeed(speed);
+		updateScreen();
 	}
+	lastPulserState = pulserState;
 	// Dynamic brightness adjustment
 	if (newTime >= lastCheckTime+CHECKINTERVAL) {
 		checkBrightness();
 		lastCheckTime = newTime;
 	}
-	lastPulserState = pulserState;
+	// Check for mode switch
+	mode = !digitalRead(modePin);
 }
 
-void writeSpeed(int speed) {
+// Shows information based on current mode
+void updateScreen() {
+	switch (mode) {
+		// Speed mode
+		case 0:
+			showNum(speed);
+			break;
+		// Odometer mode
+		case 1:
+			showNum(miles);
+			break;
+	}
+}
+
+// Displays a number with one decimal
+void showNum(int speed) {
 	int digit;
 	char charBuffer[4] = {'X','X','X','X'};
 	// Get each digit of speed
