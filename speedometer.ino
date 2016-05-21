@@ -2,25 +2,26 @@
 // ==========
 //
 // TODO:
-// * Better startup anim
-// * Dynamic brightness
 // * Acceleration
 // * Other units
 // * Odometer
-// * Actually go to 0
-// * Less spazzy
 // * MPG
 
 #include <Wire.h>
 #include "Adafruit_LEDBackpack.h"
 #include "Adafruit_GFX.h"
-#include "display.h"
+#include "mirror.h"
 
+// Digital pins
 const int pulserPin = 4;
-const int brightnessPin = 5;
 const int mirrorPin = 6;
+// Analog pins
+const int brightnessPin = 0;
 
-Mirror_AlphaNum4 display = Mirror_AlphaNum4();
+// Dynamic Brightness Settings
+const int MAXBRIGHTNESS = 600;
+const int MINBRIGHTNESS = 100;
+const unsigned long CHECKINTERVAL = 500000;
 
 int speed = 0;					// Speed in 1/10ths of an MPH
 bool pulserState = LOW;
@@ -28,15 +29,18 @@ bool lastPulserState = LOW;
 unsigned long pulseTimes[4] = {0,0,0,0};	// Duration of last 4 pulses in microseconds
 unsigned long oldTime = 0;
 unsigned long newTime = 0;
+unsigned long odometer = 0;			// Distance traveled since startup
 
-bool brightness = LOW;
+int brightness = 0x0F;
+unsigned long lastCheckTime = 0;
 bool mirror = false;
+
+Mirror_AlphaNum4 display = Mirror_AlphaNum4();
 
 void setup() {
 	// Setup IO
 	Serial.begin(115200);
 	pinMode(pulserPin, INPUT);
-	pinMode(brightnessPin, INPUT_PULLUP);
 	pinMode(mirrorPin, INPUT_PULLUP);
 	pulserState = digitalRead(pulserPin);
 	lastPulserState = pulserState;
@@ -45,32 +49,18 @@ void setup() {
 
 	// Initialize display
 	display.begin(0x70);			// I2C Address
-	if (brightness == HIGH) {
-		display.setBrightness(0x0F);
-	} else {
-		display.setBrightness(0x04);
-	}
 
 	// Play an animation
-	display.writeDigitRaw(3, 0x0);
-	display.writeDigitRaw(0, 0xFFFF);
-	display.writeDisplay();
-	delay(200);
-	display.writeDigitRaw(0, 0x0);
-	display.writeDigitRaw(1, 0xFFFF);
-	display.writeDisplay();
-	delay(200);
-	display.writeDigitRaw(1, 0x0);
-	display.writeDigitRaw(2, 0xFFFF);
-	display.writeDisplay();
-	delay(200);
-	display.writeDigitRaw(2, 0x0);
-	display.writeDigitRaw(3, 0xFFFF);
-	display.writeDisplay();
-	delay(200);
-
+	display.playAnim();
 	display.clear();
 	display.writeDisplay();
+
+	// Display speed unit
+	display.writeDigitMirror(2, 'm', false);
+	display.writeDigitMirror(1, 'p', false);
+	display.writeDigitMirror(0, 'h', false);
+	display.writeDisplay();
+	delay(500);
 
 	writeSpeed(speed);
 
@@ -100,6 +90,7 @@ void loop() {
 		// Average over 4 pulses (1 rotation of VSS gear)
 		speed = 35087719 / sum(pulseTimes);
 		writeSpeed(speed);
+		odometer++;
 	// If no new pulses for a while,
 	// assume we are at 0 mph
 	} else if (newTime - oldTime > 4385965) {
@@ -109,13 +100,9 @@ void loop() {
 		writeSpeed(speed);
 	}
 	// Dynamic brightness adjustment
-	if (brightness != digitalRead(brightnessPin)) {
-		brightness = not brightness;
-		if (brightness == HIGH) {
-			display.setBrightness(0x0F);
-		} else {
-			display.setBrightness(0x04);
-		}
+	if (newTime >= lastCheckTime+CHECKINTERVAL) {
+		checkBrightness();
+		lastCheckTime = newTime;
 	}
 	lastPulserState = pulserState;
 }
@@ -149,6 +136,15 @@ void writeSpeed(int speed) {
 		display.writeDigitAscii(3, charBuffer[3], false);
 	}
 	display.writeDisplay();
+}
+
+void checkBrightness() {
+	brightness = analogRead(brightnessPin);
+	Serial.print(brightness);
+	Serial.print(' ');
+	brightness = map( brightness, MINBRIGHTNESS, MAXBRIGHTNESS, 0, 16 );
+	Serial.println(brightness);
+	display.setBrightness(brightness);
 }
 
 unsigned long sum(unsigned long list[4]) {
