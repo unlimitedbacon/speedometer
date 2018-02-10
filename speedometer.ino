@@ -15,18 +15,24 @@
 // Digital pins
 const int pulserPin = 4;
 const int modePin = 5;
-const int mirrorPin = 6;
+const int mirrorPin = 8;
+const int odoStepPin = 6;
+const int odoDirPin = 7;
+const int odoEnPin = 2;
 // Analog pins
 const int brightnessPin = 0;
 
 // Dynamic Brightness Settings
-const int MAXBRIGHTNESS = 600;
-const int MINBRIGHTNESS = 100;
+const int maxBrightness = 600;
+const int minBrightness = 100;
 const unsigned long CHECKINTERVAL = 500000;
 
 int speed = 0;					// Speed in 1/10ths of an MPH
+//int odoCount = 0;
 bool pulserState = LOW;
 bool lastPulserState = LOW;
+//bool odoStepState = LOW;
+bool odoEnState = HIGH;
 unsigned long pulseTimes[4] = {0,0,0,0};	// Duration of last 4 pulses in microseconds
 unsigned long oldTime = 0;
 unsigned long newTime = 0;
@@ -46,6 +52,12 @@ void setup() {
 	pinMode(pulserPin, INPUT);
 	pinMode(modePin, INPUT_PULLUP);
 	pinMode(mirrorPin, INPUT_PULLUP);
+  pinMode(odoStepPin, OUTPUT);
+  pinMode(odoDirPin, OUTPUT);
+  pinMode(odoEnPin, OUTPUT);
+  digitalWrite(odoEnPin, odoEnState);
+  digitalWrite(odoDirPin, LOW);
+  digitalWrite(odoStepPin, LOW);
 	pulserState = digitalRead(pulserPin);
 	lastPulserState = pulserState;
 	mode = !digitalRead(modePin);
@@ -74,6 +86,14 @@ void setup() {
 void loop() {
 	pulserState = digitalRead(pulserPin);
 	newTime = micros();
+
+  // Rotate odometer motor
+  if (odoEnState == HIGH) {
+    odoEnState = LOW;
+    digitalWrite(odoEnPin, odoEnState);
+  }
+  digitalWrite(odoStepPin,pulserState);
+  
 	// Detect rising edge of signal
 	// and calculate speed
 	if (pulserState == HIGH and lastPulserState == LOW) {
@@ -85,6 +105,11 @@ void loop() {
 		// 574560 pulses / hour
 		// 159.6 pulses / second
 		// 6.27 ms
+    //
+    // At 100 mph
+    // 410400 pulses / hour
+    // 114 pulses / second
+    // 8.772 ms
 		pulseTimes[3] = pulseTimes[2];
 		pulseTimes[2] = pulseTimes[1];
 		pulseTimes[1] = pulseTimes[0];
@@ -95,24 +120,42 @@ void loop() {
 		speed = 35087719 / sum(pulseTimes);
 		odometer++;
 		miles = odometer*10 / 4104;
+    // Step the odometer motor
+    // 513 motor steps / revolution
+    // 1026 pulses / mile
+    // 8 pulses / motor step
+    // HOLY SHIT THATS LUCKY
+    //odoCount++;
+    //if (odoCount >= 4) {
+    //  odoCount = 0;
+    //  odoStepState = !odoStepState;
+    //  digitalWrite(odoStepPin, odoStepState);
+    //}
 		updateScreen();
+   
 	// If no new pulses for a while,
 	// assume we are at 0 mph
 	} else if (newTime - oldTime > 4385965) {
 		// 0.2 mph
 		// 4.385965 seconds
 		speed = 0;
+    odoEnState = HIGH;
+    digitalWrite(odoEnPin, odoEnState);
 		updateScreen();
 	}
+ 
 	lastPulserState = pulserState;
+  
 	// Dynamic brightness adjustment
 	if (newTime >= lastCheckTime+CHECKINTERVAL) {
 		checkBrightness();
 		lastCheckTime = newTime;
 	}
+ 
 	// Check for mode switch
 	mode = !digitalRead(modePin);
 }
+
 
 // Shows information based on current mode
 void updateScreen() {
@@ -127,6 +170,7 @@ void updateScreen() {
 			break;
 	}
 }
+
 
 // Displays a number with one decimal
 void showNum(int speed) {
@@ -160,12 +204,17 @@ void showNum(int speed) {
 	display.writeDisplay();
 }
 
+
 void checkBrightness() {
 	brightness = analogRead(brightnessPin);
-	Serial.print(brightness);
-	Serial.print(' ');
-	brightness = map( brightness, MINBRIGHTNESS, MAXBRIGHTNESS, 0, 16 );
-	Serial.println(brightness);
+	//Serial.print(brightness);
+	//Serial.print(' ');
+	if (brightness > minBrightness) {
+		brightness = map( brightness, minBrightness, maxBrightness, 0, 16 );
+	} else {
+		brightness = 0;
+	}
+	//Serial.println(brightness);
 	display.setBrightness(brightness);
 }
 
